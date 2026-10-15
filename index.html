@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>信访 Word → Excel 导入工具</title>
+<style>
+  :root { --bd:#d9dee5; --ac:#0a6cff; --bg:#f5f7fa; --hd:#2c3e50; }
+  * { box-sizing:border-box; }
+  body { font-family:"Microsoft YaHei","PingFang SC",sans-serif; background:var(--bg); margin:0; color:#333; }
+  header { background:var(--hd); color:#fff; padding:16px 24px; }
+  header h1 { margin:0; font-size:20px; font-weight:600; }
+  header p { margin:6px 0 0; font-size:13px; opacity:.85; }
+  main { max-width:1200px; margin:20px auto; padding:0 20px 60px; }
+  .card { background:#fff; border:1px solid var(--bd); border-radius:8px; padding:18px 20px; margin-bottom:18px; }
+  .card h2 { margin:0 0 12px; font-size:16px; color:var(--ac); border-left:4px solid var(--ac); padding-left:10px; }
+  .hint { font-size:12px; color:#888; margin:6px 0 0; }
+  input[type=file] { display:block; margin:10px 0; }
+  .btn { background:var(--ac); color:#fff; border:none; padding:10px 22px; border-radius:6px; font-size:14px; cursor:pointer; }
+  .btn:hover { opacity:.9; }
+  .btn.gray { background:#6b7785; }
+  .btn:disabled { background:#b9c2cc; cursor:not-allowed; }
+  .status { font-size:12px; color:#666; margin-top:8px; white-space:pre-wrap; }
+  .ok { color:#16a34a; } .bad { color:#dc2626; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  th, td { border:1px solid var(--bd); padding:5px 7px; text-align:left; vertical-align:top; }
+  th { background:#eef2f6; white-space:nowrap; font-weight:600; }
+  td input[type=text], td select, td textarea { width:100%; border:1px solid #cfd6de; border-radius:4px; padding:3px 6px; font-size:12px; font-family:inherit; }
+  td textarea { min-height:40px; resize:vertical; }
+  .scroll { max-height:420px; overflow:auto; border:1px solid var(--bd); border-radius:6px; }
+  .scroll table { min-width:max-content; }
+  .maprow { display:flex; gap:8px; align-items:center; }
+  .maprow .col { flex:0 0 180px; font-weight:600; }
+  .maprow .src { flex:0 0 220px; }
+  .maprow .val { flex:1 1 auto; }
+  .chip { display:inline-block; background:#eef4ff; border:1px solid #c9dcff; color:#0a4fbf; border-radius:12px; padding:1px 10px; margin:2px 3px 2px 0; font-size:12px; }
+  .opt { display:inline-flex; align-items:center; gap:6px; margin-right:18px; font-size:13px; }
+  .filelist div { padding:4px 0; border-bottom:1px dashed #e3e8ee; font-size:13px; }
+  .filelist span.bad { color:#dc2626; }
+  details { margin:6px 0; }
+  summary { cursor:pointer; font-size:13px; color:#0a4fbf; }
+  .fld { font-size:12px; color:#555; margin-left:18px; line-height:1.7; }
+  .fld b { color:#222; }
+  .clearfix::after { content:""; display:table; clear:both; }
+</style>
+</head>
+<body>
+<header>
+  <h1>信访 Word → Excel 导入工具</h1>
+  <p>字段内容以 Word 文档为准 · 交付格式以导入模板为准 · 输出为 Excel 文件</p>
+</header>
+<main>
+
+  <div class="card">
+    <h2>第 1 步 · 导入模板（已内置，无需上传）</h2>
+    <p class="hint">已内置省一体化平台登记表模板（已剔除「关联案件」列），打开页面即自动加载。如平台模板更新，可在此替换。</p>
+    <input type="file" id="tplInput" accept=".xls,.xlsx">
+    <div id="tplStatus" class="status"></div>
+    <div id="tplChips"></div>
+  </div>
+
+  <div class="card">
+    <h2>第 2 步 · 上传 Word 信访件（可多选）</h2>
+    <input type="file" id="docInput" accept=".doc,.docx" multiple>
+    <div id="docStatus" class="status"></div>
+    <div id="docList" class="filelist"></div>
+  </div>
+
+  <div class="card">
+    <h2>第 3 步 · 字段映射（Excel 列 ← Word 字段）</h2>
+    <p class="hint">已按常见对应关系自动匹配，可逐列修改来源；选择「自定义…」可输入固定文本。</p>
+    <div class="scroll"><table id="mapTable"></table></div>
+  </div>
+
+  <div class="card">
+    <h2>第 4 步 · 数据预览（可修改）</h2>
+    <p class="hint">每一行对应一个 Word 信访件，单元格可直接编辑，导出的文件将包含修改后的内容。</p>
+    <div class="scroll"><table id="pvTable"></table></div>
+  </div>
+
+  <div class="card">
+    <h2>导出设置</h2>
+    <p class="hint">默认严格复刻模板：保留备注说明行、保留样例页全部内容、输出与模板相同的 .xls 文件类型。如需清理可勾选下方选项。</p>
+    <label class="opt"><input type="checkbox" id="optCleanRemark"> 删除备注说明行（默认不删）</label>
+    <label class="opt"><input type="checkbox" id="optCleanSample"> 删除样例页示例数据（默认不删）</label>
+    <label class="opt">导出格式：
+      <select id="optFmt">
+        <option value="xls" selected>.xls（与模板文件类型一致）</option>
+        <option value="xlsx">.xlsx</option>
+      </select>
+    </label>
+    <div style="margin-top:14px;">
+      <button class="btn" id="btnExport" disabled>生成并导出 Excel</button>
+      <span id="expMsg" class="status" style="display:inline-block;margin-left:12px;"></span>
+    </div>
+  </div>
+
+</main>
+
+<script src="xlsx.full.min.js"></script>
+<script src="jszip.min.js"></script>
+<script src="template.js"></script>
+<script>
+"use strict";
+/* ==================== 工具函数 ==================== */
+function el(id){ return document.getElementById(id); }
+function esc(s){
+  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* ==================== Word 解析 ==================== */
+function extractText(inner){
+  const out=[]; const re=/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g; let m;
+  while((m=re.exec(inner))) out.push(m[1]);
+  return out.join('');
+}
+function parseWordXML(xmlText){
+  const bodyM=xmlText.match(/<w:body\b[^>]*>([\s\S]*?)<\/w:body>/);
+  if(!bodyM) throw new Error('未找到 w:body 节点，不是有效的 Word 文档');
+  const body=bodyM[1];
+  const comb=/<w:(tbl|p)\b[^>]*>([\s\S]*?)<\/w:\1>/g;
+  const items=[]; let m;
+  while((m=comb.exec(body))) items.push({type:m[1],inner:m[2]});
+  const fields=[]; const paragraphs=[];
+  const SECTIONS=['信访人','信访情况','信访人信息','信访情况信息','信访人基本情况'];
+  for(const it of items){
+    if(it.type==='p'){
+      const t=extractText(it.inner).trim();
+      if(t) paragraphs.push(t);
+    }else{
+      const trRe=/<w:tr\b[^>]*>([\s\S]*?)<\/w:tr>/g; let tr;
+      while((tr=trRe.exec(it.inner))){
+        const cells=[]; const tcRe=/<w:tc\b[^>]*>([\s\S]*?)<\/w:tc>/g; let c;
+        while((c=tcRe.exec(tr[1]))) cells.push(extractText(c[1]).trim());
+        let start=0;
+        if(cells.length>2 && (cells[0]==='' || SECTIONS.includes(cells[0]))) start=1;
+        for(let i=start;i<cells.length;i+=2){
+          fields.push({label:cells[i], value:(cells[i+1]!==undefined?cells[i+1]:'')});
+        }
+      }
+    }
+  }
+  fields.push({label:'文档标题', value:(paragraphs[0]||'').trim()});
+  const pRe1=/信访形式[（(]\s*([^）)]+?)\s*[）)]/;
+  const pRe2=/信访件编号[：:\s]*([A-Za-z0-9\-_]+)/;
+  for(const p of paragraphs.slice(1)){
+    let mm=p.match(pRe1); if(mm) fields.push({label:'信访形式', value:mm[1].trim()});
+    mm=p.match(pRe2); if(mm) fields.push({label:'信访件编号', value:mm[1].trim()});
+  }
+  const sum=fields.find(f=>f.label==='内容摘要');
+  if(sum && sum.value){
+    const mf=sum.value.match(/主要事实[：:]?\s*([\s\S]*?)(?=主要诉求[：:]|$)/);
+    const md=sum.value.match(/主要诉求[：:]?\s*([\s\S]*)$/);
+    if(mf && mf[1].trim()) fields.push({label:'内容摘要·主要事实', value:mf[1].trim()});
+    if(md && md[1].trim()) fields.push({label:'内容摘要·主要诉求', value:md[1].trim()});
+  }
+  const seen={};
+  for(const f of fields) seen[f.label]=f;
+  return Object.values(seen);
+}
+async function parseWordFile(file){
+  const head=new Uint8Array(await file.slice(0,4).arrayBuffer());
+  const sig=String.fromCharCode.apply(null,head);
+  if(sig.startsWith('PK')){
+    const zip=await JSZip.loadAsync(file);
+    const entry=zip.file('word/document.xml');
+    if(!entry) throw new Error('.docx 中未找到 word/document.xml');
+    return parseWordXML(await entry.async('string'));
+  }
+  const text=await file.text();
+  if(text.indexOf('<w:body')!==-1) return parseWordXML(text);
+  throw new Error('无法识别的文件：请上传平台导出的 .doc（Word XML）或 .docx 文件');
+}
+
+/* ==================== 默认映射 ==================== */
+const ALIASES={
+  '信访形式':['信访形式'],
+  '信访件编号':['信访件编号'],
+  '信访目的':['信访目的'],
+  '信访日期':['信访日期'],
+  '紧急程度':['紧急程度'],
+  '登记机构':['登记机构'],
+  '联系人姓名':['姓名','联系人姓名','联系人','信访人姓名'],
+  '联系方式':['手机','联系方式','联系电话','电话','手机号码','联系手机'],
+  '详细地址':['详细住址','详细地址','联系地址'],
+  '信访事项':['内容摘要·主要事实','信访事项','事项','内容摘要'],
+  '主要诉求':['内容摘要·主要诉求','主要诉求','诉求','内容摘要'],
+  '备注':['备注'],
+  '承办单位.名称*':['承办单位','承办单位名称'],
+  '抄送单位.名称*':['抄送单位','抄送单位名称'],
+  '证件号码':['证件号码','身份证号','身份证号码'],
+  '信访人数':['人数','信访人数'],
+  '是否扬言':['是否扬言'],
+  '初件限办日期':['初件限办日期','限办日期'],
+  '内容分类':['内容分类'],
+  '初重':['初重'],
+  '邮箱':['邮箱','电子邮箱'],
+  '匿名信访':['匿名信访'],
+  '被反映人或单位':['被反映人或单位','被反映人','反映对象'],
+  '被反映人级别':['被反映人级别'],
+  '问题发生地址':['问题发生地','问题发生地址','发生地址'],
+  '热点问题':['热点问题'],
+  '主办人员.名称*':[],
+  '登记（受理）日期':['登记日期','受理日期','登记受理日期'],
+  '是否受理':[],
+  '是否退件':[],
+  '退件理由':[],
+  '文档标题':['文档标题','标题']
+};
+const NUMERIC_COLS=new Set(['信访人数']);
+
+/* ==================== 状态 ==================== */
+let tplWb=null, headers=[], fieldLabels=[];
+let docs=[];           // {name, fields:[{label,value}]}
+let srcs=[];           // per header index
+let overrides={};      // docIdx -> colIdx -> text
+
+/* ==================== 模板加载 ==================== */
+function deleteCol(ws,c){
+  const range=XLSX.utils.decode_range(ws['!ref']);
+  let merges=ws['!merges']||[];
+  ws['!merges']=merges.map(m=>{
+    if(m.e.c<c) return m;
+    if(m.s.c>c){ const mm={s:{...m.s},e:{...m.e}}; mm.s.c--; mm.e.c--; return mm; }
+    if(m.s.c===c&&m.e.c===c) return null;
+    const mm={s:{...m.s},e:{...m.e}}; mm.e.c--; return mm;
+  }).filter(Boolean);
+  for(let C=c;C<range.e.c;C++) for(let R=range.s.r;R<=range.e.r;R++){
+    const a=XLSX.utils.encode_cell({r:R,c:C}), n=XLSX.utils.encode_cell({r:R,c:C+1});
+    if(ws[n]!==undefined) ws[a]=ws[n]; else delete ws[a];
+  }
+  for(let R=range.s.r;R<=range.e.r;R++) delete ws[XLSX.utils.encode_cell({r:R,c:range.e.c})];
+  if(Array.isArray(ws['!cols'])) ws['!cols'].splice(c,1);
+  ws['!ref']=XLSX.utils.encode_range({s:range.s,e:{r:range.e.r,c:range.e.c-1}});
+}
+// 需要从模板中剔除的列（含样例页对应列同步清理）
+const REMOVE_COLS=['关联案件.显示值'];
+function readTemplate(buf){
+  const wb=typeof buf==='string'
+    ? XLSX.read(buf,{type:'base64',cellStyles:true})
+    : XLSX.read(new Uint8Array(buf),{type:'array',cellStyles:true});
+  const ws=wb.Sheets['省一体化平台登记表'];
+  if(!ws) throw new Error('模板中未找到工作表「省一体化平台登记表」');
+  const range=XLSX.utils.decode_range(ws['!ref']);
+  headers=[];
+  for(let c=range.s.c;c<=range.e.c;c++){
+    const cell=ws[XLSX.utils.encode_cell({r:1,c})];
+    headers.push(cell&&cell.v!=null?String(cell.v).trim():'');
+  }
+  while(headers.length && headers[headers.length-1]==='') headers.pop();
+  // 按需求剔除指定列：表头、登记表列、样例页对应列（映射行/示例行）同步删除
+  for(const rn of REMOVE_COLS){
+    const idx=headers.indexOf(rn);
+    if(idx<0) continue;
+    headers.splice(idx,1);
+    deleteCol(ws,idx);
+    const wsS=wb.Sheets['样例'];
+    if(wsS && wsS['!ref']) deleteCol(wsS,idx);
+  }
+  tplWb=wb;
+}
+el('tplInput').addEventListener('change', async e=>{
+  const f=e.target.files[0];
+  if(!f) return;
+  try{
+    const buf=await f.arrayBuffer();
+    readTemplate(buf);
+    el('tplStatus').innerHTML='<span class="ok">✔ 已读取模板：'+esc(f.name)+'</span>';
+    const chips=el('tplChips'); chips.innerHTML='';
+    headers.forEach(h=>{ if(h){ const s=document.createElement('span'); s.className='chip'; s.textContent=h; chips.appendChild(s);} });
+    refreshMapping(); refreshPreview(); updateExport();
+  }catch(err){
+    el('tplStatus').innerHTML='<span class="bad">✘ 模板解析失败：'+esc(errMsg(err))+'</span>';
+  }
+});
+
+// 页面打开即自动加载内置模板（无需手动上传）
+(function autoLoadTemplate(){
+  try{
+    readTemplate(BUILTIN_TEMPLATE_B64);
+    el('tplStatus').innerHTML='<span class="ok">✔ 已自动加载内置模板（已剔除「关联案件」列）</span>';
+    const chips=el('tplChips'); chips.innerHTML='';
+    headers.forEach(h=>{ if(h){ const s=document.createElement('span'); s.className='chip'; s.textContent=h; chips.appendChild(s);} });
+    refreshMapping(); refreshPreview(); updateExport();
+  }catch(err){
+    el('tplStatus').innerHTML='<span class="bad">✘ 内置模板加载失败：'+esc(errMsg(err))+'</span>';
+  }
+})();
+
+/* ==================== Word 加载 ==================== */
+el('docInput').addEventListener('change', async e=>{
+  const files=Array.from(e.target.files);
+  if(!files.length) return;
+  const list=el('docList'); list.innerHTML='';
+  const stats=el('docStatus');
+  stats.innerHTML='正在解析 '+files.length+' 个文件…';
+  docs=[];
+  let errs=0;
+  for(let i=0;i<files.length;i++){
+    const f=files[i];
+    const div=document.createElement('div');
+    div.textContent=(i+1)+'. '+f.name+' …';
+    list.appendChild(div);
+    try{
+      const fields=await parseWordFile(f);
+      docs.push({name:f.name, fields});
+      div.innerHTML='';
+      div.appendChild(document.createTextNode((i+1)+'. '+esc(f.name)));
+      const d=document.createElement('details');
+      const sm=document.createElement('summary');
+      sm.textContent='（'+(f.name.length>30?f.name.slice(0,30)+'…':f.name)+'）提取到 '+fields.length+' 个字段';
+      d.appendChild(sm);
+      const box=document.createElement('div');
+      fields.forEach(fd=>{
+        const p=document.createElement('div'); p.className='fld';
+        const b=document.createElement('b'); b.textContent=fd.label;
+        p.appendChild(b);
+        p.appendChild(document.createTextNode('：'+fd.value));
+        box.appendChild(p);
+      });
+      d.appendChild(box); div.appendChild(d);
+    }catch(err){
+      errs++;
+      div.innerHTML=(i+1)+'. '+esc(f.name)+' <span class="bad">✘ '+esc(errMsg(err))+'</span>';
+    }
+  }
+  stats.innerHTML='<span class="'+(errs?'bad':'ok')+'">完成：成功 '+docs.length+' 个，失败 '+errs+' 个'+(docs.length?'。已自动匹配字段，请在下一步核对映射。':'')+'</span>';
+  if(docs.length){
+    const set={};
+    docs.forEach(d=>d.fields.forEach(f=>set[f.label]=1));
+    fieldLabels=Object.keys(set);
+  }else fieldLabels=[];
+  refreshMapping(); refreshPreview(); updateExport();
+});
+function errMsg(e){ return e&&e.message?e.message:String(e); }
+
+/* ==================== 映射界面 ==================== */
+function refreshMapping(){
+  const tb=el('mapTable');
+  if(!headers.length){ tb.innerHTML='<tr><td>请先上传导入模板</td></tr>'; return; }
+  if(!docs.length){ tb.innerHTML='<tr><td>请先上传 Word 信访件</td></tr>'; return; }
+  if(!srcs.length || srcs.length!==headers.length){
+    srcs=headers.map(h=>{
+      const al=ALIASES[h]||[];
+      for(const a of al){ if(fieldLabels.includes(a)) return {type:'field',label:a}; }
+      return {type:'blank',label:''};
+    });
+  }
+  let html='<tr><th>Excel 列</th><th>数据来源</th><th>当前值（第 1 个文件）</th></tr>';
+  headers.forEach((h,ci)=>{
+    const s=srcs[ci];
+    let opts='<option value="blank"'+(s.type==='blank'?' selected':'')+'>（留空）</option>';
+    fieldLabels.forEach(l=>{
+      opts+='<option value="'+esc(l)+'"'+(s.type==='field'&&s.label===l?' selected':'')+'>'+esc(l)+'</option>';
+    });
+    opts+='<option value="__custom"'+(s.type==='custom'?' selected':'')+'>自定义…</option>';
+    const valShow=(s.type==='field'&&docs[0])?(docs[0].fields.find(f=>f.label===s.label)||{value:''}).value:(s.type==='custom'?s.text||'':'');
+    html+='<tr>'
+      +'<td class="col">'+esc(h)+'</td>'
+      +'<td><select data-ci="'+ci+'">'+opts+'</select>'
+      +'<div data-custom="'+ci+'" style="'+(s.type==='custom'?'':'display:none')+';margin-top:4px;">'
+      +'<input type="text" data-cinput="'+ci+'" value="'+esc(s.text||'')+'" placeholder="输入固定文本"></div></td>'
+      +'<td class="val">'+esc(String(valShow).slice(0,60))+'</td>'
+      +'</tr>';
+  });
+  tb.innerHTML=html;
+  tb.querySelectorAll('select[data-ci]').forEach(sel=>{
+    sel.addEventListener('change',()=>{
+      const ci=+sel.getAttribute('data-ci');
+      const v=sel.value;
+      const s=srcs[ci];
+      if(v==='blank'){ srcs[ci]={type:'blank',label:''}; }
+      else if(v==='__custom'){ srcs[ci]={type:'custom',label:'',text:s.type==='custom'?(s.text||''):''}; }
+      else { srcs[ci]={type:'field',label:v}; }
+      tb.querySelector('[data-custom="'+ci+'"]').style.display=(v==='__custom'?'':'none');
+      refreshPreview(); updateExport();
+    });
+  });
+  tb.querySelectorAll('input[data-cinput]').forEach(inp=>{
+    inp.addEventListener('input',()=>{
+      const ci=+inp.getAttribute('data-cinput');
+      srcs[ci].text=inp.value;
+      refreshPreview(); updateExport();
+    });
+  });
+}
+
+/* ==================== 预览 ==================== */
+function resolve(di,ci){
+  if(overrides[di] && overrides[di][ci]!==undefined) return overrides[di][ci];
+  const s=srcs[ci];
+  if(!s||s.type==='blank') return '';
+  if(s.type==='custom') return s.text||'';
+  const f=docs[di].fields.find(x=>x.label===s.label);
+  return f?f.value:'';
+}
+function refreshPreview(){
+  const tb=el('pvTable');
+  if(!headers.length||!docs.length){ tb.innerHTML=''; return; }
+  let html='<tr><th style="min-width:150px;">Word 文件</th>'+headers.map(h=>'<th>'+esc(h)+'</th>').join('')+'</tr>';
+  docs.forEach((d,di)=>{
+    html+='<tr><td style="font-size:11px;color:#666;">'+esc(d.name)+'</td>'
+      +headers.map((h,ci)=>{
+        const v=resolve(di,ci);
+        return '<td><textarea data-doc="'+di+'" data-col="'+ci+'" rows="1">'+esc(v)+'</textarea></td>';
+      }).join('')+'</tr>';
+  });
+  tb.innerHTML=html;
+  tb.querySelectorAll('textarea').forEach(t=>{
+    t.addEventListener('input',()=>{
+      const di=+t.getAttribute('data-doc'), ci=+t.getAttribute('data-col');
+      if(!overrides[di]) overrides[di]={};
+      overrides[di][ci]=t.value;
+    });
+  });
+}
+
+/* ==================== 导出 ==================== */
+function updateExport(){ el('btnExport').disabled=!(tplWb&&docs.length); }
+function cloneSheet(ws){
+  const res={};
+  for(const k in ws){ const v=ws[k]; res[k]=(v&&typeof v==='object')?JSON.parse(JSON.stringify(v)):v; }
+  return res;
+}
+function deleteRow(ws,r){
+  const range=XLSX.utils.decode_range(ws['!ref']);
+  let merges=ws['!merges']||[];
+  ws['!merges']=merges.map(m=>{
+    if(m.s.r>r){ const mm={s:{...m.s},e:{...m.e}}; mm.s.r--; mm.e.r--; return mm; }
+    if(m.e.r>=r&&m.s.r<=r) return null;
+    return m;
+  }).filter(Boolean);
+  for(let R=r;R<range.e.r;R++) for(let C=range.s.c;C<=range.e.c;C++){
+    const a=XLSX.utils.encode_cell({r:R,c:C}), n=XLSX.utils.encode_cell({r:R+1,c:C});
+    if(ws[n]!==undefined) ws[a]=ws[n]; else delete ws[a];
+  }
+  for(let C=range.s.c;C<=range.e.c;C++) delete ws[XLSX.utils.encode_cell({r:range.e.r,c:C})];
+  ws['!ref']=XLSX.utils.encode_range({s:range.s,e:{r:range.e.r-1,c:range.e.c}});
+}
+el('btnExport').addEventListener('click', async ()=>{
+  try{
+    if(!tplWb){ alert('请先上传导入模板'); return; }
+    if(!docs.length){ alert('请先上传 Word 信访件'); return; }
+    const out=XLSX.utils.book_new();
+    tplWb.SheetNames.forEach(n=>XLSX.utils.book_append_sheet(out,cloneSheet(tplWb.Sheets[n]),n));
+    const ws=out.Sheets['省一体化平台登记表'];
+    const THIN={top:{style:'thin'},bottom:{style:'thin'},left:{style:'thin'},right:{style:'thin'}};
+    const TEMPLATE_FILL={patternType:'solid',fgColor:{rgb:'C0C0C0'},bgColor:{rgb:'000000'}};
+    docs.forEach((d,di)=>{
+      headers.forEach((h,ci)=>{
+        if(!h) return;
+        const v=resolve(di,ci);
+        const addr=XLSX.utils.encode_cell({r:2+di,c:ci});
+        const old=ws[addr];
+        // 保留模板原有样式（灰色底纹等），叠加细边框（模板要求：导入数据必须设置框线）
+        const s=old&&old.s?JSON.parse(JSON.stringify(old.s)):{};
+        s.border=THIN;
+        if(NUMERIC_COLS.has(h) && /^\d+$/.test(v)){
+          ws[addr]={t:'n',v:+v,w:v,s};
+        }else{
+          ws[addr]={t:'s',v,w:v,s};
+        }
+      });
+    });
+    // 多个文件超出模板预留行时，新增行沿用模板的灰色底纹样式（不覆盖已写入的数据）
+    const lastRow=2+docs.length-1;
+    const rr=XLSX.utils.decode_range(ws['!ref']);
+    if(rr.e.r<lastRow){
+      for(let R=rr.e.r+1;R<=lastRow;R++){
+        headers.forEach((h,ci)=>{
+          if(!h) return;
+          const addr=XLSX.utils.encode_cell({r:R,c:ci});
+          if(ws[addr]) return;
+          ws[addr]={t:'s',v:'',w:'',
+            s:{fill:TEMPLATE_FILL,border:THIN,alignment:{vertical:'center',wrapText:true}}};
+        });
+      }
+      ws['!ref']=XLSX.utils.encode_range({s:rr.s,e:{r:lastRow,c:rr.e.c}});
+    }
+    if(el('optCleanRemark').checked) deleteRow(ws,0);
+    const wsS=out.Sheets['样例'];
+    if(el('optCleanSample').checked && wsS){
+      if(wsS['!ref']){
+        const rr=XLSX.utils.decode_range(wsS['!ref']);
+        if(rr.e.r>=4) deleteRow(wsS,4);
+        if(rr.e.r>=0) deleteRow(wsS,0);
+      }
+    }
+    const fmt=el('optFmt').value;
+    const bookType=fmt==='xls'?'biff8':'xlsx';
+    const data=XLSX.write(out,{bookType,type:'array'});
+    const blob=new Blob([data],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const ts=new Date().toISOString().replace(/[-:T]/g,'').slice(0,14);
+    const fname='信访件导入_'+ts+'.'+fmt;
+    // 优先弹出「另存为」选择保存位置（Chrome/Edge 支持）；不支持或取消时回退默认下载
+    let saved=false;
+    if(window.showSaveFilePicker){
+      try{
+        const handle=await window.showSaveFilePicker({
+          suggestedName:fname,
+          types:[{description:'Excel 文件',accept:{'application/vnd.ms-excel':['.'+fmt]}}]
+        });
+        const writable=await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        saved=true;
+      }catch(err){
+        if(err && err.name==='AbortError'){
+          el('expMsg').innerHTML='<span class="bad">已取消保存</span>';
+          return;
+        }
+        saved=false; // 其他错误（如环境不支持）回退默认下载
+      }
+    }
+    if(!saved){
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download=fname;
+      document.body.appendChild(a); a.click(); a.remove();
+    }
+    el('expMsg').innerHTML='<span class="ok">✔ 已导出，共 '+docs.length+' 条信访记录</span>';
+  }catch(err){
+    el('expMsg').innerHTML='<span class="bad">✘ 导出失败：'+esc(errMsg(err))+'</span>';
+  }
+});
+</script>
+</body>
+</html>
